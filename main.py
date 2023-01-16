@@ -1,50 +1,83 @@
+
 import cv2
+import mediapipe as mp
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+mp_hands = mp.solutions.hands
 
-cap = cv2.VideoCapture(0) # sets this video capture as the first webcam//.VideoCapture is getting information from the webcam
+# For webcam input:
+cap = cv2.VideoCapture(0)
+with mp_hands.Hands(
+    model_complexity =0,
+    min_detection_confidence =0.5,
+    min_tracking_confidence = 0.5) as hands:
+  while cap.isOpened():
+    success, image = cap.read()
+    if not success:
+      print("Ignoring empty camera frame.")
+      # If loading a video, use 'break' instead of 'continue'.
+      continue
 
+    # To improve performance, optionally mark the image as not writeable to
+    # pass by reference.
+    image.flags.writeable = False
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = hands.process(image)
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1200)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-while True:
-    _, frame = cap.read()  # Reading and outputting the information from the webcam
-    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) # Converts our color detection from BRG range to HSV Range
-    height, width, _ = frame.shape
+    # Draw the hand annotations on the image.
+    image.flags.writeable = True
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    # This gives us our coordinates for making the center bore
-    cx = int(width/2)
-    cy = int(height/2)
+    # Initially set finger count to 0 for each cap
+    fingerCount = 0
 
-    pixelCenter = hsv_frame[cy, cx]
+    if results.multi_hand_landmarks:
 
-    hueValue = pixelCenter[0]
-    color = "undefined"
-    if hueValue < 5:
-        color = 'red'
-    elif hueValue < 22:
-        color = 'orange'
-    elif hueValue < 33:
-        color = 'yellow'
-    elif hueValue < 78:
-        color = 'green'
-    elif hueValue < 131:
-        color = 'blue'
-    elif hueValue < 167:
-        color = 'violet'
-    else:
-        color = 'shi ion know, prolly red'
+      for hand_landmarks in results.multi_hand_landmarks:
+        # Get hand index to check label (left or right)
+        handIndex = results.multi_hand_landmarks.index(hand_landmarks)
+        handLabel = results.multi_handedness[handIndex].classification[0].label
 
+        # Set variable to keep landmarks positions (x and y)
+        handLandmarks = []
 
-    pixelCenterBRG = frame[cy,cx] #This is our pure color numeric ,so we use this for displaying text
+        # Fill list with x and y positions of each landmark
+        for landmarks in hand_landmarks.landmark:
+          handLandmarks.append([landmarks.x, landmarks.y])
 
-    # If you see the error 'not numeric' it's because a value isn't an integer
-    cv2.putText(frame, color, (10, 50), 0, 1, (int(pixelCenterBRG[0]), int(pixelCenterBRG[1]), int(pixelCenterBRG[2])), 2)
-    cv2.circle(frame, (cx, cy), 5, (225, 0, 0), 3)
-    # Make sure these lines of code are always at the bottom
-    # These are the compiling code so everything must be done before then
-    cv2.imshow("Frames", frame)
-    key = cv2.waitKey(1)
-    if key == 27:
-        break
+        # Test conditions for each finger: Count is increased if finger is 
+        #   considered raised.
+        # Thumb: TIP x position must be greater or lower than IP x position, 
+        #   deppeding on hand label.
+        if handLabel == "Left" and handLandmarks[4][0] > handLandmarks[3][0]:
+          fingerCount = fingerCount+1
+        elif handLabel == "Right" and handLandmarks[4][0] < handLandmarks[3][0]:
+          fingerCount = fingerCount+1
 
+        # Other fingers: TIP y position must be lower than PIP y position, 
+        #   as image origin is in the upper left corner.
+        if handLandmarks[8][1] < handLandmarks[6][1]:       #Index finger
+          fingerCount = fingerCount+1
+        if handLandmarks[12][1] < handLandmarks[10][1]:     #Middle finger
+          fingerCount = fingerCount+1
+        if handLandmarks[16][1] < handLandmarks[14][1]:     #Ring finger
+          fingerCount = fingerCount+1
+        if handLandmarks[20][1] < handLandmarks[18][1]:     #Pinky
+          fingerCount = fingerCount+1
+
+        # Draw hand landmarks 
+        mp_drawing.draw_landmarks(
+            image,
+            hand_landmarks,
+            mp_hands.HAND_CONNECTIONS,
+            mp_drawing_styles.get_default_hand_landmarks_style(),
+            mp_drawing_styles.get_default_hand_connections_style())
+
+    # Display finger count
+    cv2.putText(image, str(fingerCount), (50, 450), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 0, 0), 10)
+
+    # Display image
+    cv2.imshow('MediaPipe Hands', image)
+    if cv2.waitKey(5) & 0xFF == 27:
+      break
 cap.release()
-cv2.destroyAllWindows()
